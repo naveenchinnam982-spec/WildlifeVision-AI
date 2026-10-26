@@ -1,0 +1,6 @@
+{
+  "name": "WildlifeVision AI",
+  "description": "Drone-Based Wildlife Monitoring and Animal Detection System",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
