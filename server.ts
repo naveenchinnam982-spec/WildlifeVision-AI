@@ -2,10 +2,11 @@ import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
-import analyzeRouter, { surveyHistory } from './server/api/analyze.js';
-import videoAnalyzeRouter from './server/api/videoAnalyze.js';
+import analyzeRouter, { surveyHistory, handleAnalyzeAnimal } from './server/api/analyze.js';
+import videoAnalyzeRouter, { handleAnalyzeVideo } from './server/api/videoAnalyze.js';
 
 dotenv.config();
 
@@ -13,9 +14,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);
 
-// Increase body parser limits for high-resolution aerial drone images
-app.use(express.json({ limit: '40mb' }));
-app.use(express.urlencoded({ extended: true, limit: '40mb' }));
+// Increase body parser limits for high-resolution aerial drone images and multi-frame video keyframes
+app.use(express.json({ limit: '60mb' }));
+app.use(express.urlencoded({ extended: true, limit: '60mb' }));
 
 // Middleware to catch body-parser errors (JSON syntax, payload too large) and ensure JSON response
 app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -99,12 +100,80 @@ app.post('/api/history/clear', (_req: Request, res: Response) => {
   res.json({ success: true, message: 'All analysis history cleared' });
 });
 
+// Universal Smart AI Inference Route (/api/analyze)
+// Automatically dispatches to video tracking if frames are provided, or animal detection if single image
+app.post(['/api/analyze', '/analyze'], (req: Request, res: Response) => {
+  if (req.body && (Array.isArray(req.body.frames) || req.body.durationSec || req.body.videoUrl)) {
+    return handleAnalyzeVideo(req, res);
+  }
+  return handleAnalyzeAnimal(req, res);
+});
+
+app.get(['/api/analyze', '/analyze'], (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.json({
+    success: true,
+    service: 'WildlifeVision AI Universal Inference Engine',
+    endpoint: req.originalUrl,
+    description: 'POST image payload (imageDataUrl) for photo detection, or video keyframes (frames array) for video tracking.',
+  });
+});
+
 // Dedicated Wildlife Computer Vision Inference Route (server/api/analyze.js)
 app.use(analyzeRouter);
 
 // Dedicated Wildlife Video Analysis & Multi-Object Tracking Route (server/api/videoAnalyze.js)
 app.use(videoAnalyzeRouter);
 
+// Direct route registrations on app to ensure zero 404s regardless of routing middleware resolution
+const videoRoutes = [
+  '/api/analyze-video',
+  '/api/video-analyze',
+  '/api/analyze/video',
+  '/api/video/analyze',
+  '/api/video-analysis',
+  '/api/video',
+  '/api/videos',
+  '/analyze-video',
+  '/video-analyze',
+];
+videoRoutes.forEach((route) => {
+  app.post(route, handleAnalyzeVideo);
+});
+
+const imageRoutes = [
+  '/api/analyze-animal',
+  '/api/analyze-image',
+  '/api/image-analyze',
+  '/api/analyze/image',
+  '/api/image',
+  '/analyze-animal',
+  '/analyze-image',
+  '/image-analyze',
+];
+imageRoutes.forEach((route) => {
+  app.post(route, handleAnalyzeAnimal);
+});
+
+// Download Complete Project ZIP package
+app.get(['/wildlifevision-ai.zip', '/api/download-zip', '/download'], (_req: Request, res: Response) => {
+  const publicZip = path.resolve(__dirname, 'public', 'wildlifevision-ai.zip');
+  const rootZip = path.resolve(__dirname, 'wildlifevision-ai.zip');
+  const targetPath = fs.existsSync(publicZip) ? publicZip : fs.existsSync(rootZip) ? rootZip : null;
+
+  if (targetPath) {
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="wildlifevision-ai.zip"');
+    return res.sendFile(targetPath);
+  }
+  res.status(404).json({
+    success: false,
+    error: {
+      code: 'ZIP_NOT_FOUND',
+      message: 'Project ZIP package is being prepared. Please try again shortly.',
+    },
+  });
+});
 
 // Explicit 404 handler for ALL unmatched /api/* routes so they NEVER fall through to Vite SPA
 app.all('/api/*', (req: Request, res: Response) => {
@@ -112,7 +181,7 @@ app.all('/api/*', (req: Request, res: Response) => {
     success: false,
     error: {
       code: 'API_ENDPOINT_NOT_FOUND',
-      message: `API endpoint ${req.method} ${req.originalUrl} not found.`,
+      message: `API endpoint ${req.method} ${req.originalUrl} not found. Available endpoints: POST /api/analyze-animal (aerial images), POST /api/analyze-video (video transects), POST /api/analyze (universal).`,
     },
   });
 });

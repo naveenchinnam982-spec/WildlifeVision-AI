@@ -74,19 +74,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {!isCollapsed && <span>Dashboard</span>}
         </button>
 
-        {/* 2. Analyze Image / Video */}
+        {/* 2. Image Detection */}
         <button
           type="button"
           onClick={() => onSelectTab('analyze')}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
-            currentTab === 'analyze' || currentTab === 'video'
+            currentTab === 'analyze'
               ? 'bg-emerald-800 text-white shadow-md'
               : 'text-stone-300 hover:bg-stone-800 hover:text-white'
           }`}
-          title="Analyze Drone Image or Video Transect"
+          title="Aerial Drone Image Wildlife Detection"
         >
           <Upload className="w-4 h-4 shrink-0 text-emerald-400" />
-          {!isCollapsed && <span>Analyze Image / Video</span>}
+          {!isCollapsed && <span>Image Detection</span>}
+        </button>
+
+        {/* 3. Video Tracking */}
+        <button
+          type="button"
+          onClick={() => onSelectTab('video')}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+            currentTab === 'video'
+              ? 'bg-emerald-800 text-white shadow-md'
+              : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+          }`}
+          title="Drone Video Animal Tracking & Census"
+        >
+          <Film className="w-4 h-4 shrink-0 text-emerald-400" />
+          {!isCollapsed && <span>Video Tracking</span>}
+        </button>
+
+        {/* 4. Batch Survey */}
+        <button
+          type="button"
+          onClick={() => onSelectTab('batch')}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+            currentTab === 'batch'
+              ? 'bg-emerald-800 text-white shadow-md'
+              : 'text-stone-300 hover:bg-stone-800 hover:text-white'
+          }`}
+          title="Batch Drone Photos Analysis"
+        >
+          <Layers className="w-4 h-4 shrink-0 text-emerald-400" />
+          {!isCollapsed && <span>Batch Survey</span>}
         </button>
 
         {/* 3. Forest Map */}

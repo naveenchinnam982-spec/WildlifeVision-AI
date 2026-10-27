@@ -18,7 +18,7 @@ import { VideoAnalyzer } from './components/VideoAnalyzer';
 import { VideoResults } from './components/VideoResults';
 import { AnalysisResult, VideoAnalysisResult, AppTab } from './types/wildlife';
 import { safeApiPost, ApiError } from './utils/apiClient';
-import { AlertCircle, RefreshCw, XCircle, Upload, Film } from 'lucide-react';
+import { AlertCircle, RefreshCw, XCircle, Upload, Film, Layers } from 'lucide-react';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<AppTab>('overview');
@@ -32,6 +32,8 @@ export default function App() {
   const [analysisStage, setAnalysisStage] = useState<string>('Preparing image...');
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [isRateLimited, setIsRateLimited] = useState<boolean>(false);
+  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [pendingVideoFile, setPendingVideoFile] = useState<File | null>(null);
   const [lastPayload, setLastPayload] = useState<{
     imageDataUrl: string;
     originalImageDataUrl: string;
@@ -45,9 +47,6 @@ export default function App() {
 
   // Active abort controller
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Submode for Analyze tab ('image' or 'video')
-  const [analyzeSubMode, setAnalyzeSubMode] = useState<'image' | 'video'>('image');
 
   // Survey history state with instant local cache and permanent disk synchronization
   const [history, setHistory] = useState<any[]>(() => {
@@ -295,29 +294,28 @@ export default function App() {
                 setCurrentAnalysis(null);
                 setCurrentTab('analyze');
               }}
+              onAnalyzeImage={() => {
+                setCurrentAnalysis(null);
+                setCurrentTab('analyze');
+              }}
+              onTrackVideo={() => {
+                setCurrentVideoAnalysis(null);
+                setCurrentTab('video');
+              }}
               onSelectHistoryItem={handleSelectHistoryItem}
               onOpenMap={() => setCurrentTab('map')}
             />
           )}
 
-          {/* Tab 2: Analyze Image / Video Hub */}
-          {(currentTab === 'analyze' || currentTab === 'video') && (
+          {/* Tab 2: Aerial Image Wildlife Detection */}
+          {currentTab === 'analyze' && (
             <div>
               {currentAnalysis ? (
                 <DetectionResults
                   analysis={currentAnalysis}
                   onReset={() => {
                     setCurrentAnalysis(null);
-                  }}
-                  onViewOnMap={() => {
-                    setCurrentTab('map');
-                  }}
-                />
-              ) : currentVideoAnalysis ? (
-                <VideoResults
-                  videoResult={currentVideoAnalysis}
-                  onReset={() => {
-                    setCurrentVideoAnalysis(null);
+                    setPendingImageFile(null);
                   }}
                   onViewOnMap={() => {
                     setCurrentTab('map');
@@ -328,71 +326,123 @@ export default function App() {
                   {/* Mode Selector Toggle */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-stone-900 p-4 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm">
                     <div>
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-[11px] font-bold uppercase tracking-wider mb-1">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Aerial Photo Survey Mode</span>
+                      </div>
                       <h2 className="text-xl font-bold text-stone-900 dark:text-white">
-                        Wildlife Detection & Census Pipeline
+                        Aerial Image Wildlife Detection
                       </h2>
                       <p className="text-xs text-stone-500">
-                        Select your survey media type: single drone photograph or full flight video transect.
+                        Upload drone photographs to detect wild animals, classify taxonomic species, and localize individuals.
                       </p>
                     </div>
 
-                    <div className="flex items-center bg-stone-100 dark:bg-stone-800 p-1 rounded-2xl border border-stone-200 dark:border-stone-700/80">
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => {
-                          setAnalyzeSubMode('image');
-                          setCurrentTab('analyze');
+                          setCurrentTab('video');
                         }}
-                        className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                          analyzeSubMode === 'image' && currentTab === 'analyze'
-                            ? 'bg-emerald-800 text-white shadow-xs'
-                            : 'text-stone-600 dark:text-stone-300 hover:text-stone-900'
-                        }`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-700 cursor-pointer transition"
                       >
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>Aerial Photograph</span>
+                        <Film className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Switch to Video Tracking</span>
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          setAnalyzeSubMode('video');
-                          setCurrentTab('video');
-                        }}
-                        className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                          analyzeSubMode === 'video' || currentTab === 'video'
-                            ? 'bg-emerald-800 text-white shadow-xs'
-                            : 'text-stone-600 dark:text-stone-300 hover:text-stone-900'
-                        }`}
+                        onClick={() => setCurrentTab('batch')}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-700 cursor-pointer transition"
                       >
-                        <Film className="w-3.5 h-3.5" />
-                        <span>Video Transect</span>
+                        <Layers className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Batch Photos</span>
                       </button>
                     </div>
                   </div>
 
-                  {/* Render active uploader */}
-                  {analyzeSubMode === 'image' && currentTab === 'analyze' ? (
-                    <ImageUploader
-                      onStartAnalysis={handleStartAnalysis}
-                      onCancelAnalysis={handleCancelAnalysis}
-                      isAnalyzing={isAnalyzing}
-                      analysisStage={analysisStage}
-                      onSwitchToVideo={() => {
-                        setAnalyzeSubMode('video');
-                        setCurrentTab('video');
-                      }}
-                    />
-                  ) : (
-                    <VideoAnalyzer
-                      onAnalysisComplete={(res) => {
-                        setCurrentVideoAnalysis(res);
-                        setHistory((prev: any) => [
-                          res,
-                          ...prev.filter((p: any) => p.analysisId !== res.analysisId),
-                        ]);
-                      }}
-                    />
-                  )}
+                  <ImageUploader
+                    onStartAnalysis={handleStartAnalysis}
+                    onCancelAnalysis={handleCancelAnalysis}
+                    isAnalyzing={isAnalyzing}
+                    analysisStage={analysisStage}
+                    initialFile={pendingImageFile}
+                    onSwitchToVideo={(file) => {
+                      if (file) setPendingVideoFile(file);
+                      setCurrentTab('video');
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab 3: Drone Video Animal Tracking */}
+          {currentTab === 'video' && (
+            <div>
+              {currentVideoAnalysis ? (
+                <VideoResults
+                  videoResult={currentVideoAnalysis}
+                  onReset={() => {
+                    setCurrentVideoAnalysis(null);
+                    setPendingVideoFile(null);
+                  }}
+                  onViewOnMap={() => {
+                    setCurrentTab('map');
+                  }}
+                />
+              ) : (
+                <div className="max-w-4xl mx-auto space-y-6">
+                  {/* Mode Selector Toggle */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-stone-900 p-4 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-sm">
+                    <div>
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-[11px] font-bold uppercase tracking-wider mb-1">
+                        <Film className="w-3.5 h-3.5" />
+                        <span>Drone Video Tracking Engine</span>
+                      </div>
+                      <h2 className="text-xl font-bold text-stone-900 dark:text-white">
+                        Drone Video Wildlife Tracking & Census
+                      </h2>
+                      <p className="text-xs text-stone-500">
+                        Upload aerial transect video to track animal movement trajectories and compute accurate unique counts.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCurrentTab('analyze');
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-700 cursor-pointer transition"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Switch to Image Detection</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentTab('batch')}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border border-stone-300 dark:border-stone-700 cursor-pointer transition"
+                      >
+                        <Layers className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Batch Photos</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <VideoAnalyzer
+                    initialFile={pendingVideoFile}
+                    onAnalysisComplete={(res) => {
+                      setCurrentVideoAnalysis(res);
+                      setHistory((prev: any) => [
+                        res,
+                        ...prev.filter((p: any) => p.analysisId !== res.analysisId),
+                      ]);
+                    }}
+                    onSwitchToImage={(file) => {
+                      if (file) setPendingImageFile(file);
+                      setCurrentTab('analyze');
+                    }}
+                  />
                 </div>
               )}
             </div>

@@ -128,10 +128,18 @@ export async function safeApiPost<T>(
         continue;
       }
 
+      // If server returned an HTML error page (e.g. 404 from a missing route or SPA fallback)
+      let customMsg = `Server returned an HTML page instead of JSON (HTTP ${response.status} ${response.statusText} at ${endpoint}). Diagnostic: "${diagnostic}".`;
+      if (response.status === 404) {
+        customMsg = `Computer Vision API endpoint not found (HTTP 404 at ${endpoint}). When running on Netlify, please ensure netlify.toml and netlify/functions are deployed with GEMINI_API_KEY configured in environment variables.`;
+      } else if (response.status === 502 || response.status === 503) {
+        customMsg = `The backend service is temporarily unavailable (HTTP ${response.status}). Please try again in a few moments.`;
+      }
+
       throw new ApiError(
-        `Server returned an HTML page instead of JSON (HTTP ${response.status} ${response.statusText} at ${endpoint}). Diagnostic: "${diagnostic}".`,
+        customMsg,
         response.status,
-        'NON_JSON_RESPONSE',
+        response.status === 404 ? 'ENDPOINT_NOT_FOUND' : 'NON_JSON_RESPONSE',
         endpoint,
         contentType
       );

@@ -731,24 +731,53 @@ Your task:
   }
 }
 
-// Support all standard route mountings:
-router.post('/api/analyze-animal', handleAnalyzeAnimal);
-router.post('/analyze-animal', handleAnalyzeAnimal);
+// Support all standard route mountings and aliases:
+const imageEndpoints = [
+  '/api/analyze-animal',
+  '/api/analyze-image',
+  '/api/image-analyze',
+  '/api/analyze/image',
+  '/api/image',
+  '/analyze-animal',
+  '/analyze-image',
+  '/image-analyze',
+];
+
+imageEndpoints.forEach((route) => {
+  router.post(route, handleAnalyzeAnimal);
+  router.get(route, (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      service: 'WildlifeVision AI Animal Detection Engine',
+      endpoint: route,
+      supportedMethod: 'POST',
+      acceptedPayload: {
+        imageDataUrl: 'string (base64 data URL, required)',
+        filename: 'string (optional)',
+        droneMetadata: 'object (optional)',
+        gps: 'object (optional)',
+      },
+    });
+  });
+});
+
 router.post('/', handleAnalyzeAnimal);
 
-// Return JSON 405 Method Not Allowed for non-POST calls (GET, HEAD, etc.) to prevent HTML fallback pages
+// Return JSON 405 Method Not Allowed for non-POST/non-GET calls (PUT, DELETE, etc.)
 const handleMethodNotAllowed = (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   return res.status(405).json({
     success: false,
     error: {
       code: 'METHOD_NOT_ALLOWED',
-      message: `HTTP method ${req.method} is not allowed on ${req.originalUrl}. Send a POST request with JSON payload.`,
+      message: `HTTP method ${req.method} is not allowed on ${req.originalUrl}. Send a POST request with JSON payload containing imageDataUrl.`,
     },
   });
 };
 
-router.all('/api/analyze-animal', handleMethodNotAllowed);
-router.all('/analyze-animal', handleMethodNotAllowed);
+imageEndpoints.forEach((route) => {
+  router.all(route, handleMethodNotAllowed);
+});
 
 export default router;

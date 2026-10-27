@@ -21,10 +21,14 @@ import { safeApiPost, ApiError } from '../utils/apiClient';
 
 interface VideoAnalyzerProps {
   onAnalysisComplete: (result: VideoAnalysisResult) => void;
+  onSwitchToImage?: (file?: File) => void;
+  initialFile?: File | null;
 }
 
 export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({
   onAnalysisComplete,
+  onSwitchToImage,
+  initialFile,
 }) => {
   const [selectedVideo, setSelectedVideo] = useState<{
     file?: File;
@@ -166,15 +170,24 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({
     durationSec: number
   ): Promise<{ frames: { timestampSec: number; frameIndex: number; imageDataUrl: string }[]; stepSec: number }> => {
     return new Promise((resolve, reject) => {
+      let isSettled = false;
       const video = document.createElement('video');
       video.muted = true;
       video.playsInline = true;
       video.crossOrigin = 'anonymous';
-      video.src = videoUrl;
+
+      const cleanup = () => {
+        video.onloadedmetadata = null;
+        video.onseeked = null;
+        video.onerror = null;
+      };
 
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      if (!ctx) return reject(new Error('Canvas 2D context not available'));
+      if (!ctx) {
+        cleanup();
+        return reject(new Error('Canvas 2D context not available'));
+      }
 
       const keyframes: { timestampSec: number; frameIndex: number; imageDataUrl: string }[] = [];
       const timestampsToSample: number[] = [];
@@ -199,8 +212,19 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({
       if (timestampsToSample.length === 0) timestampsToSample.push(0);
 
       let currentIndex = 0;
+      let seekTimeoutTimer: any = null;
+
+      // Timeout safeguard in case browser never fires metadata event
+      const metadataTimeout = setTimeout(() => {
+        if (!isSettled) {
+          isSettled = true;
+          cleanup();
+          reject(new Error('Timed out waiting for video decoder. Browser could not extract frames from this video format.'));
+        }
+      }, 12000);
 
       video.onloadedmetadata = () => {
+        clearTimeout(metadataTimeout);
         // High-efficiency inference resolution (max 800px) preserves aspect ratio and details while cutting payload by 80%
         const origW = video.videoWidth || 800;
         const origH = video.videoHeight || 450;
@@ -210,7 +234,12 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({
 
         const seekNext = () => {
           if (currentIndex >= timestampsToSample.length) {
-            resolve({ frames: keyframes, stepSec });
+            if (seekTimeoutTimer) clearTimeout(seekTimeoutTimer);
+            if (!isSettled) {
+              isSettled = true;
+              cleanup();
+              resolve({ frames: keyframes, stepSec });
+            }
             return;
           }
           const targetTime = Math.min(safeDuration, timestampsToSample[currentIndex]);
@@ -218,10 +247,28 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({
             `Extracting keyframe ${currentIndex + 1} of ${timestampsToSample.length} (${targetTime.toFixed(1)}s)...`
           );
           setAnalysisProgressPct(Math.round(((currentIndex + 1) / (timestampsToSample.length + 2)) * 45));
+
+          if (seekTimeoutTimer) clearTimeout(seekTimeoutTimer);
+          seekTimeoutTimer = setTimeout(() => {
+            // If seek event hangs, capture current frame and continue
+            try {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+              keyframes.push({
+                timestampSec: timestampsToSample[currentIndex],
+                frameIndex: currentIndex + 1,
+                imageDataUrl: dataUrl,
+              });
+            } catch {}
+            currentIndex++;
+            seekNext();
+          }, 3500);
+
           video.currentTime = targetTime;
         };
 
         video.onseeked = () => {
+          if (seekTimeoutTimer) clearTimeout(seekTimeoutTimer);
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
           keyframes.push({
@@ -237,8 +284,17 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({
       };
 
       video.onerror = () => {
-        reject(new Error('Failed to seek video frames. The format may not be supported by your browser.'));
+        clearTimeout(metadataTimeout);
+        if (seekTimeoutTimer) clearTimeout(seekTimeoutTimer);
+        if (!isSettled) {
+          isSettled = true;
+          cleanup();
+          reject(new Error('Failed to seek video frames. Format or codec may not be supported by browser.'));
+        }
       };
+
+      video.src = videoUrl;
+      video.load();
     });
   };
 
@@ -285,12 +341,35 @@ export const VideoAnalyzer: React.FC<VideoAnalyzerProps> = ({
           : undefined,
       };
 
-      const result = await safeApiPost<VideoAnalysisResult>(
-        '/api/analyze-video',
-        payload,
-        controller.signal,
-        1
-      );
+      // Try primary video endpoint with fallback to alias routes if 404 is encountered
+      let result: VideoAnalysisResult | null = null;
+      let lastApiErr: any = null;
+      const endpointsToTry = ['/api/analyze-video', '/api/video-analyze', '/api/analyze'];
+
+      for (const ep of endpointsToTry) {
+        try {
+          result = await safeApiPost<VideoAnalysisResult>(
+            ep,
+            payload,
+            controller.signal,
+            1
+          );
+          if (result && (result as any).success !== false) {
+            break;
+          }
+        } catch (postErr: any) {
+          lastApiErr = postErr;
+          if (postErr instanceof ApiError && postErr.status === 404) {
+            console.warn(`Endpoint ${ep} returned 404, falling back to alternative route...`);
+            continue;
+          }
+          throw postErr;
+        }
+      }
+
+      if (!result) {
+        throw lastApiErr || new Error('Video tracking service failed to return results.');
+      }
 
       if (controller.signal.aborted) return;
 

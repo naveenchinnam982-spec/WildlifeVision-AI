@@ -710,12 +710,44 @@ export async function handleAnalyzeVideo(req, res) {
   }
 }
 
-// Route mounting
-router.post('/api/analyze-video', handleAnalyzeVideo);
-router.post('/analyze-video', handleAnalyzeVideo);
+// Support all standard route mountings and aliases:
+const videoEndpoints = [
+  '/api/analyze-video',
+  '/api/video-analyze',
+  '/api/analyze/video',
+  '/api/video/analyze',
+  '/api/video-analysis',
+  '/api/video',
+  '/api/videos',
+  '/analyze-video',
+  '/video-analyze',
+];
+
+videoEndpoints.forEach((route) => {
+  router.post(route, handleAnalyzeVideo);
+  router.get(route, (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.json({
+      success: true,
+      service: 'WildlifeVision AI Drone Video Animal Tracking Engine',
+      endpoint: route,
+      supportedMethod: 'POST',
+      acceptedPayload: {
+        filename: 'string (optional)',
+        durationSec: 'number (optional)',
+        samplingIntervalSec: 'number (optional)',
+        frames: 'array of { timestampSec, frameIndex, imageDataUrl } (required)',
+        videoUrl: 'string (optional)',
+        droneMetadata: 'object (optional)',
+        gps: 'object (optional)',
+      },
+    });
+  });
+});
+
 router.post('/', handleAnalyzeVideo);
 
-// Method not allowed handler returning strict JSON 405
+// Return JSON 405 Method Not Allowed for non-POST/non-GET calls (PUT, DELETE, etc.)
 const handleMethodNotAllowed = (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   return res.status(405).json({
@@ -727,7 +759,8 @@ const handleMethodNotAllowed = (req, res) => {
   });
 };
 
-router.all('/api/analyze-video', handleMethodNotAllowed);
-router.all('/analyze-video', handleMethodNotAllowed);
+videoEndpoints.forEach((route) => {
+  router.all(route, handleMethodNotAllowed);
+});
 
 export default router;

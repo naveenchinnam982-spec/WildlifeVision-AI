@@ -11,11 +11,15 @@ import {
   PlusCircle,
   Binoculars,
   MapPin,
+  Upload,
+  Film,
 } from 'lucide-react';
 
 interface DashboardOverviewProps {
   history: any[];
   onAnalyzeNew: () => void;
+  onAnalyzeImage?: () => void;
+  onTrackVideo?: () => void;
   onSelectHistoryItem: (item: any) => void;
   onOpenMap?: () => void;
 }
@@ -23,6 +27,8 @@ interface DashboardOverviewProps {
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   history,
   onAnalyzeNew,
+  onAnalyzeImage,
+  onTrackVideo,
   onSelectHistoryItem,
   onOpenMap,
 }) => {
@@ -73,11 +79,20 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <div className="pt-2 flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={onAnalyzeNew}
+              onClick={onAnalyzeImage || onAnalyzeNew}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-bold text-sm transition shadow-lg cursor-pointer"
             >
-              <PlusCircle className="w-4 h-4" />
-              <span>Analyze Image / Video</span>
+              <Upload className="w-4 h-4" />
+              <span>Analyze Drone Image</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onTrackVideo || onAnalyzeNew}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-700/80 hover:bg-emerald-600 text-white font-bold text-sm transition border border-emerald-500/40 shadow-md cursor-pointer"
+            >
+              <Film className="w-4 h-4" />
+              <span>Track Drone Video</span>
             </button>
 
             {onOpenMap && (

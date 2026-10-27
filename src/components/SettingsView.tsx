@@ -6,6 +6,9 @@ import {
   Cpu,
   FileCheck,
   CheckCircle2,
+  Download,
+  Package,
+  Terminal,
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
@@ -166,6 +169,61 @@ export const SettingsView: React.FC = () => {
               <strong>AI & Field Verification:</strong> Model-generated confidence is an analytical estimate. Distant or occluded animals should be verified through ground-truth census or multi-angle passes.
             </li>
           </ul>
+        </div>
+      </div>
+
+      {/* Complete Project Source Package (ZIP) */}
+      <div className="bg-gradient-to-br from-emerald-950/40 via-stone-900 to-stone-900 rounded-2xl border border-emerald-800/50 p-6 shadow-sm space-y-5">
+        <div className="flex items-center justify-between border-b border-stone-800 pb-3">
+          <div className="flex items-center gap-2">
+            <Package className="w-5 h-5 text-emerald-400" />
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+              Download Complete Project Package (.ZIP)
+            </h3>
+          </div>
+          <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-900/60 border border-emerald-700/50 text-emerald-300">
+            Self-Contained Full-Stack App
+          </span>
+        </div>
+
+        <p className="text-xs text-stone-300 leading-relaxed">
+          The complete source code archive contains all frontend and backend components, Express API routes, Leaflet GIS mapping, video multi-object tracking pipeline, 99 automated tests, configuration files, and documentation.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div className="p-3 rounded-xl bg-stone-800/60 border border-stone-700/60 space-y-1">
+            <span className="font-semibold text-stone-200 flex items-center gap-1.5">
+              <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+              1. Local Installation
+            </span>
+            <p className="font-mono text-[11px] text-stone-400 bg-stone-950 px-2 py-1 rounded">
+              npm install
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-stone-800/60 border border-stone-700/60 space-y-1">
+            <span className="font-semibold text-stone-200 flex items-center gap-1.5">
+              <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+              2. Start Dev Server
+            </span>
+            <p className="font-mono text-[11px] text-stone-400 bg-stone-950 px-2 py-1 rounded">
+              npm run dev
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2">
+          <div className="text-[11px] text-stone-400 space-y-0.5">
+            <p>• Zero secrets included (uses <span className="font-mono text-stone-300">.env.example</span> template).</p>
+            <p>• Runs on Node.js 18+ / 20+ / 22+ with full Vite + Express stack.</p>
+          </div>
+          <a
+            href="/wildlifevision-ai.zip"
+            download="wildlifevision-ai.zip"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-950/60 transition cursor-pointer shrink-0"
+          >
+            <Download className="w-4 h-4" />
+            <span>Download wildlifevision-ai.zip</span>
+          </a>
         </div>
       </div>
 

@@ -1,0 +1,84 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# 1. Primary Aerial Wildlife Computer Vision Endpoint
+[[redirects]]
+  from = "/api/analyze-animal"
+  to = "/.netlify/functions/analyze-animal"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/analyze-image"
+  to = "/.netlify/functions/analyze-animal"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/image-analyze"
+  to = "/.netlify/functions/analyze-animal"
+  status = 200
+  force = true
+
+# 2. Aerial Video Transect & Multi-Object Tracking Endpoint
+[[redirects]]
+  from = "/api/analyze-video"
+  to = "/.netlify/functions/analyze-video"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/video-analyze"
+  to = "/.netlify/functions/analyze-video"
+  status = 200
+  force = true
+
+# 3. Universal Inference Engine Dispatcher
+[[redirects]]
+  from = "/api/analyze"
+  to = "/.netlify/functions/analyze-universal"
+  status = 200
+  force = true
+
+# 4. System Configuration & Gemini Model Status
+[[redirects]]
+  from = "/api/config"
+  to = "/.netlify/functions/config"
+  status = 200
+  force = true
+
+# 5. History and Records Management
+[[redirects]]
+  from = "/api/history/clear"
+  to = "/.netlify/functions/history"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/history/*"
+  to = "/.netlify/functions/history"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/history"
+  to = "/.netlify/functions/history"
+  status = 200
+  force = true
+
+# 6. Fallback for any other /api/* routes
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# 7. Single Page Application (SPA) client router fallback (must be last)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

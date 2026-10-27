@@ -33,6 +33,7 @@ interface ImageUploaderProps {
   isAnalyzing: boolean;
   analysisStage?: string;
   onSwitchToVideo?: (file?: File) => void;
+  initialFile?: File | null;
 }
 
 export const ImageUploader: React.FC<ImageUploaderProps> = ({
@@ -41,6 +42,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   isAnalyzing,
   analysisStage,
   onSwitchToVideo,
+  initialFile,
 }) => {
   const [selectedFile, setSelectedFile] = useState<{
     originalDataUrl: string;
@@ -81,6 +83,12 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
     }, 100);
     return () => clearInterval(interval);
   }, [isAnalyzing]);
+
+  useEffect(() => {
+    if (initialFile) {
+      processFile(initialFile);
+    }
+  }, [initialFile]);
 
   const MAX_SIZE_MB = 25;
   const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
