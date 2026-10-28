@@ -60,6 +60,7 @@ export default function App() {
     return [];
   });
   const [hasApiKey, setHasApiKey] = useState<boolean>(true);
+  const [isCheckingKey, setIsCheckingKey] = useState<boolean>(false);
 
   // Sync history state to localStorage
   useEffect(() => {
@@ -72,6 +73,7 @@ export default function App() {
 
   // Fetch initial history and configuration from permanent server storage
   const fetchHistoryAndConfig = useCallback(async () => {
+    setIsCheckingKey(true);
     try {
       const configRes = await fetch('/api/config');
       if (configRes.ok) {
@@ -95,6 +97,8 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Initial data fetch warning:', err);
+    } finally {
+      setIsCheckingKey(false);
     }
   }, []);
 
@@ -140,11 +144,31 @@ export default function App() {
     try {
       setAnalysisStage('Executing Gemini multimodal vision inference...');
 
+      // Strip raw oversized original data URL to keep payload tiny (<300KB) and prevent Lambda 413 limits
+      const apiPayload = {
+        imageDataUrl: payload.imageDataUrl,
+        originalImageDataUrl:
+          payload.originalImageDataUrl && payload.originalImageDataUrl.length < 1_500_000
+            ? payload.originalImageDataUrl
+            : undefined,
+        filename: payload.filename,
+        imageWidth: payload.imageWidth,
+        imageHeight: payload.imageHeight,
+        clientPreprocessingMs: payload.clientPreprocessingMs,
+        gps: payload.gps,
+        droneMetadata: payload.droneMetadata,
+      };
+
       const result = await safeApiPost<AnalysisResult>(
         '/api/analyze-animal',
-        payload,
+        apiPayload,
         controller.signal
       );
+
+      // Restore client original high-resolution image for canvas inspection HUD
+      if (payload.originalImageDataUrl) {
+        result.imageDataUrl = payload.originalImageDataUrl;
+      }
 
       // Check if user cancelled while receiving response
       if (controller.signal.aborted) return;
@@ -241,13 +265,31 @@ export default function App() {
         <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
           {/* Missing API Key Warning if not configured */}
           {!hasApiKey && (
-            <div className="mb-6 p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
-              <div className="flex-1 text-xs space-y-1">
-                <p className="font-bold text-sm">GEMINI_API_KEY Missing</p>
-                <p>
-                  To run live wildlife detections with Gemini 3.8 Flash, make sure `GEMINI_API_KEY` is configured in the environment secrets.
-                </p>
+            <div className="mb-6 p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
+                <div className="text-xs space-y-1">
+                  <p className="font-bold text-sm">GEMINI_API_KEY Required for Live Detections</p>
+                  <p className="text-stone-600 dark:text-stone-300">
+                    To enable live wildlife detections with Gemini Vision on Netlify:
+                  </p>
+                  <ol className="list-decimal list-inside space-y-0.5 text-stone-600 dark:text-stone-300 font-mono text-[11px] pt-1">
+                    <li>Go to Netlify Dashboard &rarr; <strong>Site configuration</strong> &rarr; <strong>Environment variables</strong></li>
+                    <li>Add <strong>GEMINI_API_KEY</strong> with your key from Google AI Studio</li>
+                    <li>Go to <strong>Deploys</strong> &rarr; <strong>Trigger deploy</strong> &rarr; <strong>Deploy site</strong></li>
+                  </ol>
+                </div>
+              </div>
+              <div className="shrink-0 self-end sm:self-center">
+                <button
+                  type="button"
+                  onClick={() => fetchHistoryAndConfig()}
+                  disabled={isCheckingKey}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer transition shadow-sm"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingKey ? 'animate-spin' : ''}`} />
+                  <span>{isCheckingKey ? 'Checking...' : 'Check Connection'}</span>
+                </button>
               </div>
             </div>
           )}

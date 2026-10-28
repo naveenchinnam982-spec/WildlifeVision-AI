@@ -218,9 +218,10 @@ async function callGeminiVisionWithRetry(
   // High-speed candidate precedence: gemini-3.1-flash-lite (fastest vision inference), gemini-flash-latest, gemini-3.8-flash
   const candidates = [
     configuredModel,
-    'gemini-3.1-flash-lite',
-    'gemini-flash-latest',
+    'gemini-3.5-flash-lite',
+    'gemini-3.5-flash',
     'gemini-3.8-flash',
+    'gemini-flash-latest',
   ].filter(Boolean);
   const modelsToTry = Array.from(new Set(candidates));
 
@@ -395,14 +396,23 @@ export async function handleAnalyzeAnimal(req, res) {
     }
 
     // 2. Validate GEMINI_API_KEY
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey.trim() === '') {
+    const rawApiKey =
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      process.env.GOOGLE_GENAI_API_KEY ||
+      process.env.GEMINI_KEY ||
+      process.env.VITE_GEMINI_API_KEY ||
+      process.env.API_KEY ||
+      '';
+    const apiKey = rawApiKey.trim().replace(/^["']|["']$/g, '').trim();
+
+    if (!apiKey) {
       return res.status(500).json({
         success: false,
         error: {
           code: 'API_KEY_NOT_CONFIGURED',
           message:
-            'GEMINI_API_KEY is not configured in the server environment. Please set GEMINI_API_KEY in the AI Studio Secrets panel.',
+            'GEMINI_API_KEY is not configured in the server environment. Please set GEMINI_API_KEY in the environment secrets.',
         },
       });
     }

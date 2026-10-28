@@ -569,8 +569,17 @@ export async function handleAnalyzeVideo(req, res) {
       return res.status(200).json(cached);
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey.trim() === '') {
+    const rawApiKey =
+      process.env.GEMINI_API_KEY ||
+      process.env.GOOGLE_API_KEY ||
+      process.env.GOOGLE_GENAI_API_KEY ||
+      process.env.GEMINI_KEY ||
+      process.env.VITE_GEMINI_API_KEY ||
+      process.env.API_KEY ||
+      '';
+    const apiKey = rawApiKey.trim().replace(/^["']|["']$/g, '').trim();
+
+    if (!apiKey) {
       return res.status(500).json({
         success: false,
         error: {
@@ -590,8 +599,8 @@ export async function handleAnalyzeVideo(req, res) {
     const configuredModel = process.env.GEMINI_MODEL;
     const modelsToTry = [
       configuredModel,
-      'gemini-3.1-flash-lite',
       'gemini-3.5-flash-lite',
+      'gemini-3.5-flash',
       'gemini-3.8-flash',
     ].filter(Boolean);
 

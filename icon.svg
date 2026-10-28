@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064e3b" />
+      <stop offset="100%" stop-color="#022c22" />
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="100%" stop-color="#10b981" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded squircle with border -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="#10b981" stroke-width="4" stroke-opacity="0.3" />
+
+  <!-- Drone Propeller Rotors & Arms -->
+  <g stroke="#34d399" stroke-width="12" stroke-linecap="round" opacity="0.85">
+    <!-- Top-left rotor arm & rotor -->
+    <line x1="256" y1="256" x2="130" y2="130" />
+    <ellipse cx="115" cy="115" rx="42" ry="16" fill="none" stroke="#10b981" stroke-width="8" transform="rotate(-45 115 115)" />
+    <circle cx="115" cy="115" r="8" fill="#34d399" />
+
+    <!-- Top-right rotor arm & rotor -->
+    <line x1="256" y1="256" x2="382" y2="130" />
+    <ellipse cx="397" cy="115" rx="42" ry="16" fill="none" stroke="#10b981" stroke-width="8" transform="rotate(45 397 115)" />
+    <circle cx="397" cy="115" r="8" fill="#34d399" />
+
+    <!-- Bottom-left rotor arm & rotor -->
+    <line x1="256" y1="256" x2="130" y2="382" />
+    <ellipse cx="115" cy="397" rx="42" ry="16" fill="none" stroke="#10b981" stroke-width="8" transform="rotate(45 115 397)" />
+    <circle cx="115" cy="397" r="8" fill="#34d399" />
+
+    <!-- Bottom-right rotor arm & rotor -->
+    <line x1="256" y1="256" x2="382" y2="382" />
+    <ellipse cx="397" cy="397" rx="42" ry="16" fill="none" stroke="#10b981" stroke-width="8" transform="rotate(-45 397 397)" />
+    <circle cx="397" cy="397" r="8" fill="#34d399" />
+  </g>
+
+  <!-- Central Target / Scanner HUD -->
+  <circle cx="256" cy="256" r="110" fill="#042f2e" stroke="#10b981" stroke-width="6" />
+  <circle cx="256" cy="256" r="88" fill="none" stroke="#34d399" stroke-width="2" stroke-dasharray="14 10" opacity="0.6" />
+
+  <!-- Bounding Box Targeting Reticle (0-1000 AI Vision Box Indicator) -->
+  <g stroke="#34d399" stroke-width="5" fill="none">
+    <path d="M 186 216 L 186 186 L 216 186" />
+    <path d="M 326 216 L 326 186 L 296 186" />
+    <path d="M 186 296 L 186 326 L 216 326" />
+    <path d="M 326 296 L 326 326 L 296 326" />
+  </g>
+
+  <!-- Wildlife Animal Silhouette: Majestic Eagle / Falcon in flight -->
+  <g fill="#ecfdf5">
+    <path d="M 256 200 C 265 215 285 220 310 215 C 335 210 365 190 380 180 C 360 210 335 235 305 245 C 315 255 315 270 300 278 C 285 285 270 270 256 288 C 242 270 227 285 212 278 C 197 270 197 255 207 245 C 177 235 152 210 132 180 C 147 190 177 210 202 215 C 227 220 247 215 256 200 Z" />
+    <circle cx="256" cy="225" r="5" fill="#10b981" />
+  </g>
+
+  <!-- AI Lens Core dot -->
+  <circle cx="256" cy="256" r="4" fill="#34d399" />
+</svg>

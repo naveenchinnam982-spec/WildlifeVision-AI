@@ -1,4 +1,5 @@
 import type { Handler, HandlerEvent } from './types.js';
+import { getCleanApiKey } from './types.js';
 
 /**
  * Health & Configuration endpoint for Netlify Serverless environment
@@ -21,20 +22,16 @@ export const handler: Handler = async (event: HandlerEvent) => {
     };
   }
 
-  const apiKey =
-    process.env.GEMINI_API_KEY ||
-    process.env.VITE_GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    '';
+  const apiKey = getCleanApiKey();
 
   return {
     statusCode: 200,
     headers: CORS_HEADERS,
     body: JSON.stringify({
       success: true,
-      hasApiKey: Boolean(apiKey && apiKey.trim().length > 0),
-      model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
-      fallbackModel: 'gemini-flash-latest',
+      hasApiKey: Boolean(apiKey && apiKey.length > 0),
+      model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+      fallbackModel: 'gemini-3.5-flash',
       thinkingLevel: 'LOW',
       maxUploadSizeMb: 25,
       environment: 'netlify-serverless',

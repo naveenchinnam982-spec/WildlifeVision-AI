@@ -1,0 +1,15 @@
+# Netlify Redirects Configuration for WildlifeVision AI
+# Directs /api/* requests to Netlify Serverless Functions before SPA catch-all
+
+/api/analyze-animal    /.netlify/functions/analyze-animal    200!
+/api/analyze-image     /.netlify/functions/analyze-animal    200!
+/api/image-analyze     /.netlify/functions/analyze-animal    200!
+/api/analyze-video     /.netlify/functions/analyze-video     200!
+/api/video-analyze     /.netlify/functions/analyze-video     200!
+/api/analyze           /.netlify/functions/analyze-universal 200!
+/api/config            /.netlify/functions/config            200!
+/api/history/clear     /.netlify/functions/history           200!
+/api/history/*         /.netlify/functions/history           200!
+/api/history           /.netlify/functions/history           200!
+/api/*                 /.netlify/functions/:splat            200!
+/*                     /index.html                           200

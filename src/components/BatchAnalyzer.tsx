@@ -143,7 +143,10 @@ export const BatchAnalyzer: React.FC<BatchAnalyzerProps> = ({
     // 4. Send to real POST /api/analyze-animal endpoint
     const payload = {
       imageDataUrl: optResult.optimizedDataUrl,
-      originalImageDataUrl: optResult.originalDataUrl,
+      originalImageDataUrl:
+        optResult.originalDataUrl && optResult.originalDataUrl.length < 1_500_000
+          ? optResult.originalDataUrl
+          : undefined,
       filename: item.filename,
       imageWidth: optResult.originalWidth,
       imageHeight: optResult.originalHeight,
@@ -155,6 +158,10 @@ export const BatchAnalyzer: React.FC<BatchAnalyzerProps> = ({
       payload,
       controller.signal
     );
+
+    if (optResult.originalDataUrl) {
+      result.imageDataUrl = optResult.originalDataUrl;
+    }
 
     abortControllersRef.current.delete(item.id);
     return result;

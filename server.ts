@@ -35,17 +35,25 @@ app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
 });
 
 // API key presence check for client configuration
-const apiKey = process.env.GEMINI_API_KEY;
-
 import { historyStore } from './server/storage/historyStore.js';
 
 // Health & configuration check
 app.get('/api/config', (_req: Request, res: Response) => {
+  const currentKey = (
+    process.env.GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.GOOGLE_GENAI_API_KEY ||
+    process.env.GEMINI_KEY ||
+    process.env.VITE_GEMINI_API_KEY ||
+    process.env.API_KEY ||
+    ''
+  ).trim().replace(/^["']|["']$/g, '').trim();
+
   res.json({
     success: true,
-    hasApiKey: Boolean(apiKey && apiKey.trim().length > 0),
-    model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
-    fallbackModel: 'gemini-flash-latest',
+    hasApiKey: Boolean(currentKey && currentKey.length > 0),
+    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    fallbackModel: 'gemini-3.5-flash',
     thinkingLevel: 'LOW',
     maxUploadSizeMb: 25,
     timestamp: new Date().toISOString(),

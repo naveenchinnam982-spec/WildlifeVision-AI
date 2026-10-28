@@ -1,4 +1,5 @@
 import type { Handler, HandlerEvent } from './types.js';
+import { getCleanApiKey } from './types.js';
 import { GoogleGenAI, Type } from '@google/genai';
 
 /**
@@ -346,13 +347,9 @@ export const handler: Handler = async (event: HandlerEvent) => {
       };
     }
 
-    const apiKey =
-      process.env.GEMINI_API_KEY ||
-      process.env.VITE_GEMINI_API_KEY ||
-      process.env.GOOGLE_API_KEY ||
-      '';
+    const apiKey = getCleanApiKey();
 
-    if (!apiKey || apiKey.trim() === '') {
+    if (!apiKey) {
       return {
         statusCode: 500,
         headers: CORS_HEADERS,
@@ -361,7 +358,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
           error: {
             code: 'API_KEY_NOT_CONFIGURED',
             message:
-              'GEMINI_API_KEY is not configured in Netlify environment variables. Please add GEMINI_API_KEY under Site Settings > Environment Variables.',
+              'GEMINI_API_KEY is not configured in Netlify environment variables. Please add GEMINI_API_KEY under Site Configuration > Environment Variables.',
           },
         }),
       };
@@ -372,7 +369,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       httpOptions: { headers: { 'User-Agent': 'wildlifevision-netlify' } },
     });
 
-    const modelToUse = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
+    const modelToUse = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
     const framesToAnalyze = frames.slice(0, 6);
 
     const analyzedFrames = await Promise.all(

@@ -1,4 +1,5 @@
 import type { Handler, HandlerEvent } from './types.js';
+import { getCleanApiKey, CORS_HEADERS } from './types.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import crypto from 'crypto';
 
@@ -6,17 +7,10 @@ import crypto from 'crypto';
  * Netlify Serverless Function for Aerial Animal Detection
  * Route: POST /api/analyze-animal (redirected to /.netlify/functions/analyze-animal)
  *
- * Provides high-precision wildlife computer vision inference using Google Gemini,
- * structured JSON schema outputs, normalized coordinates [0, 1000], IoU deduplication,
- * and reliable JSON responses on all execution paths.
+ * Implements high-precision wildlife detection from aerial/drone imagery
+ * using Google Gemini vision models, structured JSON schema outputs,
+ * normalized coordinates [0, 1000], IoU deduplication, and detailed diagnostics.
  */
-
-const CORS_HEADERS = {
-  'Content-Type': 'application/json',
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-};
 
 // In-memory cache across serverless warm container invocations
 const warmImageCache = new Map<string, any>();
@@ -187,137 +181,240 @@ function calculateSpeciesCounts(detections: any[]) {
   };
 }
 
+/**
+ * Classifies exceptions from Google GenAI into specific, diagnostic error objects.
+ */
+function classifyGeminiError(err: any): { statusCode: number; code: string; message: string; retryable: boolean } {
+  const rawStatus = err?.status || err?.code || 0;
+  const rawMsg = String(err?.message || err?.error?.message || err || '');
+  const lowerMsg = rawMsg.toLowerCase();
+
+  // 1. Invalid or unauthorized API key
+  if (
+    rawStatus === 401 ||
+    rawStatus === 403 ||
+    lowerMsg.includes('api_key_invalid') ||
+    lowerMsg.includes('api key not valid') ||
+    lowerMsg.includes('permission_denied') ||
+    lowerMsg.includes('unauthorized') ||
+    lowerMsg.includes('forbidden')
+  ) {
+    return {
+      statusCode: 401,
+      code: 'INVALID_API_KEY',
+      message: 'The configured Gemini API key is invalid or lacks necessary permissions. Please check GEMINI_API_KEY in Netlify Site Configuration.',
+      retryable: false,
+    };
+  }
+
+  // 2. Quota or Rate Limit exceeded
+  if (
+    rawStatus === 429 ||
+    lowerMsg.includes('429') ||
+    lowerMsg.includes('resource_exhausted') ||
+    lowerMsg.includes('quota') ||
+    lowerMsg.includes('rate limit')
+  ) {
+    return {
+      statusCode: 429,
+      code: 'RATE_LIMIT_EXCEEDED',
+      message: 'Gemini API quota or rate limit exceeded for this project. Please wait a moment before trying again.',
+      retryable: true,
+    };
+  }
+
+  // 3. Timeout
+  if (lowerMsg.includes('timed out') || lowerMsg.includes('timeout') || rawStatus === 504) {
+    return {
+      statusCode: 504,
+      code: 'INFERENCE_TIMEOUT',
+      message: 'AI vision inference request timed out. Please try optimizing or selecting a clearer image.',
+      retryable: true,
+    };
+  }
+
+  // 4. Genuine 503 Service Overload / High Demand
+  if (
+    rawStatus === 503 ||
+    lowerMsg.includes('503') ||
+    lowerMsg.includes('high demand') ||
+    lowerMsg.includes('overloaded') ||
+    lowerMsg.includes('service unavailable')
+  ) {
+    return {
+      statusCode: 503,
+      code: 'SERVICE_HIGH_DEMAND',
+      message: 'The Gemini vision service is currently experiencing high demand. Please try again in a few moments.',
+      retryable: true,
+    };
+  }
+
+  // 5. Model Not Found / Deprecated
+  if (rawStatus === 404 || lowerMsg.includes('not found') || lowerMsg.includes('is no longer available')) {
+    return {
+      statusCode: 502,
+      code: 'MODEL_NOT_FOUND',
+      message: `The requested AI vision model is not available: ${rawMsg.slice(0, 150)}`,
+      retryable: true,
+    };
+  }
+
+  // 6. Invalid Argument / Bad Request
+  if (rawStatus === 400 || lowerMsg.includes('invalid_argument') || lowerMsg.includes('bad request')) {
+    return {
+      statusCode: 400,
+      code: 'INVALID_REQUEST',
+      message: `The image request was rejected: ${rawMsg.slice(0, 150)}`,
+      retryable: false,
+    };
+  }
+
+  // 7. Fallback
+  return {
+    statusCode: 500,
+    code: 'INFERENCE_SERVICE_ERROR',
+    message: rawMsg.slice(0, 200) || 'An internal error occurred during computer vision analysis.',
+    retryable: false,
+  };
+}
+
+/**
+ * Performs Gemini multimodal vision inference with multi-model fallback.
+ * Prioritizes high-speed, proven vision models:
+ * gemini-3.5-flash-lite (~1.1s) -> gemini-3.5-flash (~5s) -> gemini-3.8-flash -> gemini-flash-latest
+ */
 async function callGeminiVision(
   aiClient: GoogleGenAI,
   { mimeType, base64Data, systemInstruction }: { mimeType: string; base64Data: string; systemInstruction: string }
-) {
+): Promise<{ response: any; usedModel: string }> {
   const configuredModel = process.env.GEMINI_MODEL;
-  const modelsToTry = [
+  // High-performance candidate precedence
+  const candidates = [
     configuredModel,
-    'gemini-3.1-flash-lite',
-    'gemini-flash-latest',
+    'gemini-3.5-flash-lite',
+    'gemini-3.5-flash',
     'gemini-3.8-flash',
+    'gemini-flash-latest',
   ].filter(Boolean) as string[];
 
-  let lastError: any = null;
+  const modelsToTry = Array.from(new Set(candidates));
+  let lastClassifiedError: ReturnType<typeof classifyGeminiError> | null = null;
 
-  for (const model of Array.from(new Set(modelsToTry))) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await aiClient.models.generateContent({
-          model,
-          contents: {
-            parts: [
-              {
-                inlineData: {
-                  mimeType,
-                  data: base64Data,
-                },
+  for (const model of modelsToTry) {
+    console.log(`[WildlifeVision AI] Attempting animal detection on model: ${model}`);
+    try {
+      const response = await aiClient.models.generateContent({
+        model,
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: base64Data,
               },
-              {
-                text: `Detect all distinct animals visible in this aerial/wildlife image. Return one bounding box per individual animal on the 0-1000 scale, with species label, category, confidence (0.0 - 1.0), and identificationStatus ('identified', 'uncertain', or 'unclassified'). Also note scene summary and any environmental or image quality warnings.`,
-              },
-            ],
-          },
-          config: {
-            systemInstruction,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                hasAnimals: {
-                  type: Type.BOOLEAN,
-                  description: 'Whether any animals are visible in the image',
-                },
-                summary: {
-                  type: Type.STRING,
-                  description: 'Brief overview of detected wildlife, habitat, and drone perspective',
-                },
-                warnings: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING },
-                  description: 'Any lighting, occlusion, altitude, or quality warnings',
-                },
-                detections: {
-                  type: Type.ARRAY,
-                  description: 'List of individual animal detections with bounding box coordinates',
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      animalLabel: {
-                        type: Type.STRING,
-                        description: 'Specific identified species name',
-                      },
-                      category: {
-                        type: Type.STRING,
-                        description: 'Broad category like Mammal, Bird, Reptile, etc.',
-                      },
-                      confidence: {
-                        type: Type.NUMBER,
-                        description: 'Estimated model confidence score between 0.0 and 1.0',
-                      },
-                      identificationStatus: {
-                        type: Type.STRING,
-                        description: 'Status: identified, uncertain, or unclassified',
-                      },
-                      xMin: {
-                        type: Type.INTEGER,
-                        description: 'Bounding box left coordinate (0 to 1000)',
-                      },
-                      yMin: {
-                        type: Type.INTEGER,
-                        description: 'Bounding box top coordinate (0 to 1000)',
-                      },
-                      xMax: {
-                        type: Type.INTEGER,
-                        description: 'Bounding box right coordinate (0 to 1000)',
-                      },
-                      yMax: {
-                        type: Type.INTEGER,
-                        description: 'Bounding box bottom coordinate (0 to 1000)',
-                      },
-                    },
-                    required: [
-                      'animalLabel',
-                      'category',
-                      'confidence',
-                      'identificationStatus',
-                      'xMin',
-                      'yMin',
-                      'xMax',
-                      'yMax',
-                    ],
-                  },
-                },
-              },
-              required: ['hasAnimals', 'summary', 'warnings', 'detections'],
             },
+            {
+              text: `Detect all distinct animals visible in this aerial/wildlife image. Return one bounding box per individual animal on the 0-1000 scale, with species label, category, confidence (0.0 - 1.0), and identificationStatus ('identified', 'uncertain', or 'unclassified'). Also note scene summary and any environmental or image quality warnings.`,
+            },
+          ],
+        },
+        config: {
+          systemInstruction,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              hasAnimals: {
+                type: Type.BOOLEAN,
+                description: 'Whether any animals are visible in the image',
+              },
+              summary: {
+                type: Type.STRING,
+                description: 'Brief overview of detected wildlife, habitat, and drone perspective',
+              },
+              warnings: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: 'Any lighting, occlusion, altitude, or quality warnings',
+              },
+              detections: {
+                type: Type.ARRAY,
+                description: 'List of individual animal detections with bounding box coordinates',
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    animalLabel: {
+                      type: Type.STRING,
+                      description: 'Specific identified species name',
+                    },
+                    category: {
+                      type: Type.STRING,
+                      description: 'Broad category like Mammal, Bird, Reptile, etc.',
+                    },
+                    confidence: {
+                      type: Type.NUMBER,
+                      description: 'Estimated model confidence score between 0.0 and 1.0',
+                    },
+                    identificationStatus: {
+                      type: Type.STRING,
+                      description: 'Status: identified, uncertain, or unclassified',
+                    },
+                    xMin: {
+                      type: Type.INTEGER,
+                      description: 'Bounding box left coordinate (0 to 1000)',
+                    },
+                    yMin: {
+                      type: Type.INTEGER,
+                      description: 'Bounding box top coordinate (0 to 1000)',
+                    },
+                    xMax: {
+                      type: Type.INTEGER,
+                      description: 'Bounding box right coordinate (0 to 1000)',
+                    },
+                    yMax: {
+                      type: Type.INTEGER,
+                      description: 'Bounding box bottom coordinate (0 to 1000)',
+                    },
+                  },
+                  required: [
+                    'animalLabel',
+                    'category',
+                    'confidence',
+                    'identificationStatus',
+                    'xMin',
+                    'yMin',
+                    'xMax',
+                    'yMax',
+                  ],
+                },
+              },
+            },
+            required: ['hasAnimals', 'summary', 'warnings', 'detections'],
           },
-        });
+        },
+      });
 
-        return { response, usedModel: model };
-      } catch (err: any) {
-        lastError = err;
-        const msg = String(err?.message || err).toLowerCase();
-        const isTransient =
-          err?.status === 503 ||
-          err?.status === 429 ||
-          msg.includes('503') ||
-          msg.includes('429') ||
-          msg.includes('high demand') ||
-          msg.includes('unavailable') ||
-          msg.includes('overloaded');
+      console.log(`[WildlifeVision AI] Inference succeeded with model: ${model}`);
+      return { response, usedModel: model };
+    } catch (err: any) {
+      const classified = classifyGeminiError(err);
+      lastClassifiedError = classified;
+      console.warn(`[WildlifeVision AI] Model ${model} failed (${classified.code} - HTTP ${classified.statusCode}):`, classified.message);
 
-        if (isTransient && attempt === 0) {
-          await new Promise((r) => setTimeout(r, 1200));
-          continue;
-        }
-        break;
+      // If invalid API key or bad request, do not retry other models
+      if (classified.statusCode === 401 || classified.statusCode === 403 || classified.code === 'INVALID_REQUEST') {
+        throw classified;
       }
+      // For transient 503/429/404, proceed to next candidate model
     }
   }
 
-  throw lastError || new Error('All AI computer vision models were unavailable.');
+  throw lastClassifiedError || {
+    statusCode: 503,
+    code: 'MODELS_UNAVAILABLE',
+    message: 'All AI computer vision models were unavailable. Please try again shortly.',
+    retryable: true,
+  };
 }
 
 export const handler: Handler = async (event: HandlerEvent) => {
@@ -393,7 +490,6 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
     const {
       imageDataUrl,
-      originalImageDataUrl,
       filename = 'drone_aerial_survey.jpg',
       imageWidth = 1920,
       imageHeight = 1080,
@@ -418,13 +514,10 @@ export const handler: Handler = async (event: HandlerEvent) => {
     }
 
     // 6. Check GEMINI_API_KEY in environment
-    const apiKey =
-      process.env.GEMINI_API_KEY ||
-      process.env.VITE_GEMINI_API_KEY ||
-      process.env.GOOGLE_API_KEY ||
-      '';
+    const apiKey = getCleanApiKey();
 
-    if (!apiKey || apiKey.trim() === '') {
+    if (!apiKey) {
+      console.error('[WildlifeVision AI] GEMINI_API_KEY is not configured in Netlify environment variables.');
       return {
         statusCode: 500,
         headers: CORS_HEADERS,
@@ -433,48 +526,47 @@ export const handler: Handler = async (event: HandlerEvent) => {
           error: {
             code: 'API_KEY_NOT_CONFIGURED',
             message:
-              'GEMINI_API_KEY is not configured in Netlify environment variables. Please go to Netlify Site Settings > Environment Variables, add GEMINI_API_KEY with your Google Gemini API key from Google AI Studio, and trigger a new deploy.',
+              'GEMINI_API_KEY is not configured in Netlify environment variables. Please go to Netlify Site Configuration > Environment Variables, add GEMINI_API_KEY with your Google Gemini API key from Google AI Studio, and trigger a new deploy under Deploys > Trigger deploy.',
           },
         }),
       };
     }
 
-    // 7. Validate image format
-    const matches = imageDataUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
-    if (!matches) {
+    // 7. Parse and validate image format safely
+    let cleanMime = 'image/jpeg';
+    let cleanBase64 = '';
+
+    const dataUrlPrefixMatch = imageDataUrl.match(/^data:([^;]+);base64,(.*)$/s);
+    if (dataUrlPrefixMatch) {
+      cleanMime = dataUrlPrefixMatch[1].trim().toLowerCase();
+      cleanBase64 = dataUrlPrefixMatch[2].replace(/\s+/g, '');
+    } else {
+      cleanBase64 = imageDataUrl.replace(/\s+/g, '');
+    }
+
+    if (cleanMime === 'image/jpg') cleanMime = 'image/jpeg';
+
+    const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validMimes.includes(cleanMime)) {
+      cleanMime = 'image/jpeg';
+    }
+
+    if (!cleanBase64 || cleanBase64.length < 50) {
       return {
         statusCode: 400,
         headers: CORS_HEADERS,
         body: JSON.stringify({
           success: false,
           error: {
-            code: 'INVALID_IMAGE_FORMAT',
-            message: 'Invalid image format. Must be a valid Base64 data URL (JPEG, PNG, WebP).',
-          },
-        }),
-      };
-    }
-
-    const mimeType = matches[1];
-    const base64Data = matches[2];
-
-    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
-    if (!allowedMimeTypes.includes(mimeType.toLowerCase())) {
-      return {
-        statusCode: 400,
-        headers: CORS_HEADERS,
-        body: JSON.stringify({
-          success: false,
-          error: {
-            code: 'UNSUPPORTED_IMAGE_TYPE',
-            message: `Unsupported image type: ${mimeType}. Only JPEG, PNG, and WebP are supported.`,
+            code: 'INVALID_IMAGE_PAYLOAD',
+            message: 'Provided image data is empty or too short.',
           },
         }),
       };
     }
 
     // 8. Cache lookup for fast repeated calls
-    const imageFingerprint = getImageFingerprint(base64Data, filename);
+    const imageFingerprint = getImageFingerprint(cleanBase64, filename);
     if (warmImageCache.has(imageFingerprint)) {
       const cached = warmImageCache.get(imageFingerprint);
       const serverTotalMs = Date.now() - serverStartTime;
@@ -513,12 +605,12 @@ export const handler: Handler = async (event: HandlerEvent) => {
       };
     }
 
-    // 9. Initialize Google Gemini AI SDK
+    // 9. Initialize Google Gemini AI SDK with official telemetry header
     const aiClient = new GoogleGenAI({
-      apiKey: apiKey.trim(),
+      apiKey,
       httpOptions: {
         headers: {
-          'User-Agent': 'wildlifevision-netlify',
+          'User-Agent': 'aistudio-build',
         },
       },
     });
@@ -543,17 +635,18 @@ Your task:
    - If uncertain of exact species, use the most specific defensible category (e.g. 'Deer family', 'Canine', 'Bird', 'Unknown animal') and set identificationStatus to 'uncertain' or 'unclassified'.
 7. If no animals are visibly identifiable, set hasAnimals to false, detections to [], and provide a clear summary and warning.`;
 
-    // 10. Execute AI Vision inference
+    // 10. Execute AI Vision inference with multi-model fallback
     const aiStartTime = Date.now();
     const { response, usedModel } = await callGeminiVision(aiClient, {
-      mimeType,
-      base64Data,
+      mimeType: cleanMime,
+      base64Data: cleanBase64,
       systemInstruction,
     });
     const aiInferenceMs = Date.now() - aiStartTime;
 
     const responseText = response.text;
     if (!responseText) {
+      console.error('[WildlifeVision AI] Empty responseText from model:', usedModel);
       return {
         statusCode: 502,
         headers: CORS_HEADERS,
@@ -567,17 +660,19 @@ Your task:
       };
     }
 
-    // 11. Parse structured JSON safely
+    // 11. Parse structured JSON safely (extract within outer braces)
     let rawData: any;
     try {
       let jsonStr = responseText.trim();
-      if (jsonStr.startsWith('```json')) {
-        jsonStr = jsonStr.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-      } else if (jsonStr.startsWith('```')) {
-        jsonStr = jsonStr.replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+      jsonStr = jsonStr.replace(/^```[a-zA-Z]*\s*/i, '').replace(/\s*```$/i, '').trim();
+      const firstBrace = jsonStr.indexOf('{');
+      const lastBrace = jsonStr.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
       }
       rawData = JSON.parse(jsonStr);
-    } catch {
+    } catch (parseErr: any) {
+      console.error('[WildlifeVision AI] Failed to parse JSON from vision model:', parseErr?.message, 'Raw text:', responseText.slice(0, 300));
       return {
         statusCode: 502,
         headers: CORS_HEADERS,
@@ -640,11 +735,8 @@ Your task:
     const analysisId = `SURV-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const serverTotalMs = Date.now() - serverStartTime;
 
-    const origData = originalImageDataUrl || imageDataUrl;
-    const estimatedBytes = (base64Data.length * 3) / 4;
-    const origBytes = Math.round((origData.length * 3) / 4 / 1024);
+    const estimatedBytes = (cleanBase64.length * 3) / 4;
     const optimizedBytes = Math.round(estimatedBytes / 1024);
-    const optimizationRatioPct = origBytes > 0 ? Math.round(((origBytes - optimizedBytes) / origBytes) * 100) : 0;
 
     const performanceMetrics = {
       clientPreprocessingMs: Number(clientPreprocessingMs) || 0,
@@ -652,9 +744,9 @@ Your task:
       aiInferenceMs,
       validationAndDeduplicationMs,
       totalTimeMs: serverTotalMs + (Number(clientPreprocessingMs) || 0),
-      payloadSizeOriginalKb: origBytes,
+      payloadSizeOriginalKb: optimizedBytes,
       payloadSizeOptimizedKb: optimizedBytes,
-      optimizationRatioPct,
+      optimizationRatioPct: 0,
     };
 
     const result = {
@@ -664,7 +756,7 @@ Your task:
       timestamp: new Date().toISOString(),
       imageWidth: Number(imageWidth) || 1920,
       imageHeight: Number(imageHeight) || 1080,
-      imageDataUrl: origData,
+      imageDataUrl: `data:${cleanMime};base64,${cleanBase64}`,
       detections: deduplicated,
       totalAnimals: counts.totalAnimals,
       distinctSpeciesCount: counts.distinctSpeciesCount,
@@ -704,75 +796,27 @@ Your task:
       body: JSON.stringify(result),
     };
   } catch (err: any) {
-    const message = err instanceof Error ? err.message : 'Unknown server error during image analysis';
+    const classified = classifyGeminiError(err);
+    console.error('[WildlifeVision AI] Handler caught error:', {
+      statusCode: classified.statusCode,
+      code: classified.code,
+      message: classified.message,
+    });
 
-    if (message.includes('429') || message.includes('ResourceExhausted') || message.includes('quota')) {
-      return {
-        statusCode: 429,
-        headers: {
-          ...CORS_HEADERS,
-          'Retry-After': '3',
-        },
-        body: JSON.stringify({
-          success: false,
-          error: {
-            code: 'RATE_LIMIT_EXCEEDED',
-            message: 'Gemini API rate limit reached. Please wait a few moments before trying again.',
-            retryable: true,
-          },
-        }),
-      };
-    }
-
-    if (message.includes('timed out')) {
-      return {
-        statusCode: 504,
-        headers: CORS_HEADERS,
-        body: JSON.stringify({
-          success: false,
-          error: {
-            code: 'INFERENCE_TIMEOUT',
-            message: 'AI analysis request timed out. Please try optimizing or selecting a clearer image.',
-            retryable: true,
-          },
-        }),
-      };
-    }
-
-    if (
-      message.includes('503') ||
-      message.includes('high demand') ||
-      message.includes('unavailable') ||
-      message.includes('overloaded') ||
-      message.includes('All AI computer vision models were unavailable')
-    ) {
-      return {
-        statusCode: 503,
-        headers: {
-          ...CORS_HEADERS,
-          'Retry-After': '3',
-        },
-        body: JSON.stringify({
-          success: false,
-          error: {
-            code: 'SERVICE_HIGH_DEMAND',
-            message:
-              'The AI computer vision detection service is experiencing high demand. Please try again in a few moments.',
-            retryable: true,
-          },
-        }),
-      };
+    const headers: Record<string, string> = { ...CORS_HEADERS };
+    if (classified.statusCode === 429 || classified.statusCode === 503) {
+      headers['Retry-After'] = '3';
     }
 
     return {
-      statusCode: 500,
-      headers: CORS_HEADERS,
+      statusCode: classified.statusCode,
+      headers,
       body: JSON.stringify({
         success: false,
         error: {
-          code: 'INFERENCE_SERVICE_ERROR',
-          message,
-          retryable: false,
+          code: classified.code,
+          message: classified.message,
+          retryable: classified.retryable,
         },
       }),
     };
